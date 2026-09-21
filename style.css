@@ -734,3 +734,16 @@ ul { padding: 0; list-style: none; }
   body, .site-main { background: #fff; }
   .result-workspace { position: static; }
 }
+
+/* Remove o realce azul ao tocar nos controles */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Evita selecionar acidentalmente o texto dos botões */
+button,
+[role="button"],
+summary {
+  -webkit-user-select: none;
+  user-select: none;
+}
