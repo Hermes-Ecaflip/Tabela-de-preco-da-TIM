@@ -17,7 +17,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=c357eb15da81">
+  <link rel="stylesheet" href="style.css?v=30e81e83eed5">
 </head>
 <body>
 
@@ -62,6 +62,10 @@
       <button class="mode-tab" id="modeCatalogTab" role="tab" aria-selected="false" aria-controls="modeCatalog" data-mode="catalog" tabindex="-1">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22z"></path><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22z"></path></svg>
         Catálogo por plano
+      </button>
+      <button class="mode-tab" id="modeCompareTab" role="tab" aria-selected="false" aria-controls="modeCompare" data-mode="compare" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"></path><path d="m7 15 4-4 3 3 5-6"></path></svg>
+        Comparador
       </button>
     </div>
   </nav>
@@ -152,6 +156,10 @@
               <p class="product-type" id="productType"></p>
               <h2 class="product-name" id="productName"></h2>
               <ul class="product-tags" id="productTags" aria-label="Características do produto"></ul>
+              <button class="product-history-link" id="productHistoryBtn" type="button" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"></path><path d="m7 15 4-4 3 3 5-6"></path></svg>
+                Ver histórico de preços
+              </button>
             </div>
           </header>
 
@@ -293,6 +301,113 @@
 
     </div>
 
+    <!-- ══════════════════ MODO COMPARADOR ══════════════════ -->
+    <div id="modeCompare" role="tabpanel" aria-labelledby="modeCompareTab" tabindex="0" hidden>
+
+      <div class="catalog-heading">
+        <div>
+          <span class="section-kicker">Histórico</span>
+          <h2>Comparador de preços</h2>
+          <p id="compareIntro">Veja como o preço de um produto mudou a cada tabela enviada.</p>
+        </div>
+      </div>
+
+      <aside class="compare-notice" id="compareUnavailable" role="status" hidden>
+        <strong>Histórico indisponível.</strong>
+        <span>O arquivo historico.js não foi carregado. Publique novamente todos os arquivos do projeto.</span>
+      </aside>
+
+      <div class="compare-layout" id="compareLayout">
+
+        <div class="compare-main">
+
+          <!-- Escolha do produto e dos planos -->
+          <section class="compare-picker" aria-label="Produto e planos do gráfico">
+            <label class="field-label" for="compareInput">Aparelho ou acessório</label>
+            <div class="search-wrapper" id="compareSearchWrapper" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-controls="compareDropdown">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                type="search"
+                id="compareInput"
+                class="compare-input"
+                placeholder="Ex.: iPhone 16, Galaxy S25, JBL Flip…"
+                autocomplete="off"
+                spellcheck="false"
+                aria-autocomplete="list"
+                aria-controls="compareDropdown"
+              >
+              <button class="search-clear" id="compareClear" type="button" aria-label="Limpar busca" hidden>✕</button>
+              <ul class="search-dropdown" id="compareDropdown" role="listbox" aria-label="Sugestões de produtos" hidden></ul>
+            </div>
+
+            <details class="compare-plans" id="comparePlansBox" open hidden>
+              <summary class="compare-plans-summary">
+                <span class="field-label">Planos no gráfico</span>
+                <span class="compare-plans-count" id="comparePlansHelper"></span>
+                <span class="all-plans-chevron" aria-hidden="true">▼</span>
+              </summary>
+              <div id="comparePlans"></div>
+            </details>
+          </section>
+
+          <!-- Resultado: resumo por plano + gráfico + tabela de valores -->
+          <section class="compare-result" id="compareResult" aria-label="Evolução do preço" hidden>
+            <header class="product-header compare-product">
+              <div class="product-logo" id="compareLogo" aria-hidden="true"></div>
+              <div class="product-info">
+                <p class="product-type" id="compareProductType"></p>
+                <h3 class="product-name" id="compareProductName"></h3>
+              </div>
+            </header>
+
+            <div class="compare-cards" id="compareCards" aria-label="Resumo por plano"></div>
+
+            <div class="chart-wrap" id="chartWrap" tabindex="0" role="group" aria-label="Gráfico de linhas. Use as setas para a esquerda e para a direita para ver os valores de cada tabela.">
+              <svg class="chart-svg" id="chartSvg" role="img" focusable="false" aria-label="Gráfico de evolução de preço"></svg>
+              <div class="chart-tooltip" id="chartTooltip" hidden></div>
+            </div>
+            <p class="chart-hint" id="chartHint">Passe o mouse ou toque no gráfico para ver os valores de cada tabela.</p>
+
+            <details class="all-plans compare-table-details">
+              <summary class="all-plans-toggle">
+                <span class="all-plans-title">Valores por tabela</span>
+                <span class="all-plans-count badge" id="compareTableCount">0</span>
+                <span class="all-plans-chevron" aria-hidden="true">▼</span>
+              </summary>
+              <div class="compare-table-scroll" tabindex="0" role="region" aria-label="Tabela de valores por data">
+                <table class="compare-table" id="compareTable"></table>
+              </div>
+            </details>
+          </section>
+
+          <!-- Estado inicial vazio -->
+          <div class="empty-state" id="compareEmpty" aria-live="polite">
+            <span class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 3v18h18"></path><path d="m7 15 4-4 3 3 5-6"></path></svg>
+            </span>
+            <h2>Escolha um produto</h2>
+            <p>O gráfico mostra como o preço mudou em cada tabela enviada.</p>
+          </div>
+
+        </div>
+
+        <!-- O que mudou entre as duas últimas tabelas -->
+        <aside class="compare-changes" id="compareChanges" aria-label="O que mudou na última tabela">
+          <span class="section-kicker">Última tabela</span>
+          <h3 class="compare-changes-title">O que mudou</h3>
+          <p class="compare-changes-range" id="changesRange"></p>
+          <label class="field-label" for="changesPlanSelect">Plano</label>
+          <select class="catalog-select" id="changesPlanSelect" aria-label="Plano para comparar entre as duas últimas tabelas"></select>
+          <div class="changes-summary" id="changesSummary" aria-live="polite"></div>
+          <div id="changesLists"></div>
+        </aside>
+
+      </div>
+    </div>
+
   </main>
 
   <!-- ════════════════════════════════════════════════════
@@ -305,6 +420,7 @@
     </div>
   </footer>
 
-  <script src="script.js?v=9dd3981cc850"></script>
+  <script src="historico.js?v=dc6a19a2210d"></script>
+  <script src="script.js?v=323901dbc73f"></script>
 </body>
 </html>

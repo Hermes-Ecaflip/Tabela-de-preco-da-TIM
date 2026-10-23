@@ -1,11 +1,17 @@
 name: 🔄 Atualizar Tabela de Preços
 
-# Dispara quando a planilha for enviada ao repositório, ou manualmente
+# Dispara quando uma planilha for enviada (pasta tabelas/ ou tabela_precos.xlsx), ou manualmente
 on:
   push:
     paths:
+      - 'tabelas/*.xlsx'
       - 'tabela_precos.xlsx'
   workflow_dispatch:
+
+# Uma atualização por vez: evita conflito se duas planilhas forem enviadas em sequência
+concurrency:
+  group: atualizar-tabela
+  cancel-in-progress: false
 
 jobs:
   atualizar-dados:
@@ -14,9 +20,11 @@ jobs:
       contents: write   # Necessário para o bot commitar de volta
 
     steps:
-      # 1. Baixa o repositório
+      # 1. Baixa o repositório (sempre a versão mais recente da branch)
       - name: 📥 Baixar repositório
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       # 2. Configura o ambiente Python
       - name: 🐍 Configurar Python 3.11
@@ -28,24 +36,29 @@ jobs:
       - name: 📦 Instalar dependências
         run: pip install pandas openpyxl
 
-      # 4. Processa a planilha (planos + Boost Trade In) e regenera os arquivos
+      # 4. Lê as planilhas da pasta tabelas/, gera o histórico do Comparador
+      #    e, se a mais recente for mais nova que a tabela atual, usa ela no site
+      - name: 📈 Gerar histórico de preços
+        run: python processar_historico.py
+
+      # 5. Processa a tabela atual (planos + Boost Trade In) e regenera os arquivos
       - name: ⚙️ Processar planilha
         run: python processar_planilha.py
 
-      # 5. Valida Boosts, HTML, CSS e JavaScript antes de publicar
+      # 6. Valida Boosts, histórico, HTML, CSS e JavaScript antes de publicar
       - name: 🧪 Validar site gerado
         run: |
           python -m unittest discover -s tests -v
           node --check script.js
 
-      # 6. Commita e publica as alterações (se houver)
+      # 7. Commita e publica as alterações (se houver)
       - name: 🚀 Publicar alterações
         run: |
           git config --global user.name  "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
 
-          # Adiciona os arquivos que o script pode ter modificado
-          git add script.js index.html README.md
+          # Adiciona os arquivos que os scripts podem ter modificado
+          git add script.js index.html README.md historico.js tabela_precos.xlsx
 
           # Só commita e dá push se realmente houver mudanças staged
           if git diff --staged --quiet; then

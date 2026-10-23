@@ -286,6 +286,37 @@ const elCatalogSummary     = document.getElementById('catalogSummary');
 const elCatalogGrid        = document.getElementById('catalogGrid');
 const elCatalogEmpty       = document.getElementById('catalogEmpty');
 
+// Comparador de preços
+const elModeCompareTab     = document.getElementById('modeCompareTab');
+const elModeCompare        = document.getElementById('modeCompare');
+const elProductHistoryBtn  = document.getElementById('productHistoryBtn');
+const elCompareUnavailable = document.getElementById('compareUnavailable');
+const elCompareIntro       = document.getElementById('compareIntro');
+const elCompareLayout      = document.getElementById('compareLayout');
+const elCompareSearchWrapper = document.getElementById('compareSearchWrapper');
+const elCompareInput       = document.getElementById('compareInput');
+const elCompareDropdown    = document.getElementById('compareDropdown');
+const elCompareClear       = document.getElementById('compareClear');
+const elComparePlansBox    = document.getElementById('comparePlansBox');
+const elComparePlansHelper = document.getElementById('comparePlansHelper');
+const elComparePlans       = document.getElementById('comparePlans');
+const elCompareResult      = document.getElementById('compareResult');
+const elCompareLogo        = document.getElementById('compareLogo');
+const elCompareProductType = document.getElementById('compareProductType');
+const elCompareProductName = document.getElementById('compareProductName');
+const elCompareCards       = document.getElementById('compareCards');
+const elChartWrap          = document.getElementById('chartWrap');
+const elChartSvg           = document.getElementById('chartSvg');
+const elChartTooltip       = document.getElementById('chartTooltip');
+const elChartHint          = document.getElementById('chartHint');
+const elCompareTableCount  = document.getElementById('compareTableCount');
+const elCompareTable       = document.getElementById('compareTable');
+const elCompareEmpty       = document.getElementById('compareEmpty');
+const elChangesRange       = document.getElementById('changesRange');
+const elChangesPlanSelect  = document.getElementById('changesPlanSelect');
+const elChangesSummary     = document.getElementById('changesSummary');
+const elChangesLists       = document.getElementById('changesLists');
+
 const REQUIRED_ELEMENTS = [
   elModeSearchTab, elModeCatalogTab, elModeSearch, elModeCatalog,
   elThemeToggle, elThemeToggleText, elThemeColorMeta,
@@ -297,6 +328,13 @@ const REQUIRED_ELEMENTS = [
   elCatalogPlanSelect, elCatalogTypeSelect, elCatalogBrandSelect,
   elCatalogBoostOnly, elCatalogPriceMin, elCatalogPriceMax, elCatalogPriceClear,
   elCatalogSummary, elCatalogGrid, elCatalogEmpty,
+  elModeCompareTab, elModeCompare, elProductHistoryBtn, elCompareUnavailable,
+  elCompareIntro, elCompareLayout, elCompareSearchWrapper, elCompareInput,
+  elCompareDropdown, elCompareClear, elComparePlansBox, elComparePlansHelper,
+  elComparePlans, elCompareResult, elCompareLogo, elCompareProductType,
+  elCompareProductName, elCompareCards, elChartWrap, elChartSvg, elChartTooltip,
+  elChartHint, elCompareTableCount, elCompareTable, elCompareEmpty,
+  elChangesRange, elChangesPlanSelect, elChangesSummary, elChangesLists,
 ];
 
 function showFatalError(message) {
@@ -510,6 +548,9 @@ function renderProductHeader() {
     tags.push(`<li class="product-tag product-tag--default">Até: ${escapeHtml(product.data_fim)}</li>`);
   }
   elProductTags.innerHTML = tags.join('');
+
+  // Atalho para o comparador (só aparece se o produto tem histórico e há 2+ tabelas)
+  elProductHistoryBtn.hidden = !hasPriceHistory(product.descricao);
 }
 
 /* ── 9b. Controle do Boost ── */
@@ -848,24 +889,650 @@ function sanitizePriceInputs() {
 
 
 /* ══════════════════════════════════════════════════════════
+   PARTE D — COMPARADOR DE PREÇOS (histórico de cada tabela)
+   Dados em historico.js, gerado por processar_historico.py.
+   Formato: para cada produto e plano, só os pontos em que o preço
+   muda — [índice_da_data, preço] — e null quando o preço deixa de existir.
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 15. Dados e funções do histórico ── */
+const HISTORY = (typeof HISTORICO !== 'undefined' && HISTORICO
+  && Array.isArray(HISTORICO.datas) && Array.isArray(HISTORICO.planos)
+  && HISTORICO.produtos && typeof HISTORICO.produtos === 'object')
+  ? HISTORICO : null;
+
+const MAX_COMPARE_PLANS = 6;
+const DEFAULT_COMPARE_PLAN = 'PRÉ (Balcão)';
+const HISTORY_DATES = HISTORY ? HISTORY.datas : [];
+const HISTORY_PLAN_INDEX = new Map(HISTORY ? HISTORY.planos.map((plan, index) => [plan, index]) : []);
+const HISTORY_NAMES = HISTORY ? Object.keys(HISTORY.produtos) : [];
+const HISTORY_SPANS_YEARS = new Set(HISTORY_DATES.map(date => date.slice(0, 4))).size > 1;
+const PRODUCT_BY_NAME = new Map(PRODUCTS.map(product => [product.descricao, product]));
+const HISTORY_GROUPS = [
+  { key: 'nonfid', title: 'Sem fidelização' },
+  { key: 'mobile', title: 'Mobile' },
+  { key: 'fibra',  title: 'TIM Fibra' },
+];
+
+// Texto de busca de cada produto (nome, código e variantes), calculado uma vez
+const HISTORY_HAYSTACK = new Map(HISTORY_NAMES.map(name => {
+  const product = PRODUCT_BY_NAME.get(name);
+  const extra = product ? [product.codigo, ...(Array.isArray(product.variants) ? product.variants : [])] : [];
+  return [name, normalizeSearchText([name, ...extra].join(' '))];
+}));
+
+function hasPriceHistory(name) {
+  return Boolean(HISTORY) && HISTORY_DATES.length >= 2
+    && Object.prototype.hasOwnProperty.call(HISTORY.produtos, name);
+}
+
+/** Grupo (sem fidelização, mobile ou fibra) de um plano. */
+function historyPlanGroup(plan) {
+  if (NONFID_FIELD[plan]) return 'nonfid';
+  return /FIBRA|ULTRAFIBRA/i.test(plan) ? 'fibra' : 'mobile';
+}
+
+/**
+ * Preço de um produto em um plano para cada tabela (uma posição por data).
+ * Reconstrói a linha completa a partir dos pontos de mudança; null = sem preço.
+ */
+function getHistorySeries(name, plan) {
+  const total = HISTORY_DATES.length;
+  const values = new Array(total).fill(null);
+  const planIndex = HISTORY_PLAN_INDEX.get(plan);
+  const points = planIndex === undefined ? null : HISTORY?.produtos?.[name]?.[planIndex];
+  if (!Array.isArray(points)) return values;
+  let cursor = 0;
+  let current = null;
+  for (let i = 0; i < total; i++) {
+    while (cursor < points.length && points[cursor][0] <= i) {
+      current = points[cursor][1];
+      cursor++;
+    }
+    values[i] = Number.isFinite(Number(current)) && current !== null ? Number(current) : null;
+  }
+  return values;
+}
+
+/** Planos em que o produto já teve preço em alguma tabela, na ordem do histórico. */
+function getHistoryPlans(name) {
+  const series = HISTORY?.produtos?.[name];
+  if (!series) return [];
+  return Object.keys(series)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map(index => HISTORY.planos[index])
+    .filter(plan => plan && getHistorySeries(name, plan).some(value => value !== null));
+}
+
+function formatDateBR(iso) {
+  const [year, month, day] = String(iso).split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function formatDateShort(iso) {
+  const [year, month, day] = String(iso).split('-');
+  return HISTORY_SPANS_YEARS ? `${day}/${month}/${year.slice(2)}` : `${day}/${month}`;
+}
+
+/** Variação entre dois preços ({ diff, pct, kind }) ou null se algum não existir. */
+function priceChange(previous, current) {
+  if (previous === null || current === null || previous === undefined || current === undefined) return null;
+  const diff = Math.round((current - previous) * 100) / 100;
+  const pct = previous > 0 ? (diff / previous) * 100 : 0;
+  return { diff, pct, kind: diff < 0 ? 'down' : diff > 0 ? 'up' : 'flat' };
+}
+
+/** HTML da variação: seta + sinal, para não depender só da cor. */
+function deltaHtml(change, { short = false } = {}) {
+  if (!change) return '';
+  if (change.kind === 'flat') return short ? '' : '<span class="delta is-flat">= sem mudança</span>';
+  const arrow = change.kind === 'down' ? '▼' : '▲';
+  const sign  = change.kind === 'down' ? '−' : '+';
+  const money = `${sign}${formatPrice(Math.abs(change.diff))}`;
+  const pct   = `${sign}${Math.abs(change.pct).toFixed(1).replace('.', ',')}%`;
+  return `<span class="delta is-${change.kind}">${arrow} ${money}${short ? '' : ` (${pct})`}</span>`;
+}
+
+/** Escala "bonita" para o eixo Y: devolve os ticks e os limites arredondados. */
+function niceScale(min, max, target) {
+  if (min === max) {
+    const pad = Math.max(Math.abs(max) * 0.05, 1);
+    min -= pad;
+    max += pad;
+  } else {
+    const pad = (max - min) * 0.1;
+    min -= pad;
+    max += pad;
+  }
+  min = Math.max(0, min);
+  const rawStep = (max - min) / Math.max(1, target - 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
+  const step = factor * magnitude;
+  const low = Math.floor(min / step) * step;
+  const high = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let value = low; value <= high + step / 2; value += step) ticks.push(Math.round(value * 100) / 100);
+  return { ticks, min: low, max: high };
+}
+
+function roundCoord(value) {
+  return Math.round(value * 10) / 10;
+}
+
+/* ── 16. Estado do comparador ── */
+let cmpProduct     = null;   // descrição do produto escolhido
+let cmpPlans       = [];     // planos no gráfico, na ordem de seleção
+let cmpActiveIndex = -1;     // tabela destacada pelo cursor, toque ou teclado
+let cmpFocusIndex  = -1;     // item focado no dropdown de busca
+let cmpFiltered    = [];     // resultados do dropdown
+let chartSeries    = [];     // séries do último desenho
+let chartGeometry  = null;   // medidas do último desenho (usadas pelo tooltip)
+let chartWidth     = 0;
+let planBoxTouched = false;  // a lista de planos já recebeu seu estado inicial (aberta/fechada)
+const cmpColors    = new Map();   // plano → posição na paleta (cor estável)
+
+function assignCompareColors() {
+  [...cmpColors.keys()].forEach(plan => { if (!cmpPlans.includes(plan)) cmpColors.delete(plan); });
+  const used = new Set(cmpColors.values());
+  cmpPlans.forEach(plan => {
+    if (cmpColors.has(plan)) return;
+    let slot = 0;
+    while (used.has(slot)) slot++;
+    cmpColors.set(plan, slot);
+    used.add(slot);
+  });
+}
+
+function colorStyle(plan) {
+  return `--c:var(--chart-${(cmpColors.get(plan) ?? 0) + 1})`;
+}
+
+/* ── 17. Busca de produto ── */
+function searchHistory(query) {
+  if (!query || query.trim().length < 2) return [];
+  const terms = normalizeSearchText(query).trim().split(/\s+/);
+  return HISTORY_NAMES
+    .filter(name => terms.every(term => HISTORY_HAYSTACK.get(name).includes(term)))
+    .slice(0, 20);
+}
+
+function setCompareExpanded(expanded) {
+  elCompareSearchWrapper.setAttribute('aria-expanded', String(expanded));
+  elCompareDropdown.hidden = !expanded;
+  if (!expanded) {
+    cmpFocusIndex = -1;
+    elCompareInput.removeAttribute('aria-activedescendant');
+  }
+}
+
+function renderCompareDropdown(query) {
+  cmpFiltered = searchHistory(query);
+  cmpFocusIndex = -1;
+
+  if (!query || query.length < 2) {
+    elCompareDropdown.innerHTML = '';
+    setCompareExpanded(false);
+    return;
+  }
+  if (!cmpFiltered.length) {
+    elCompareDropdown.innerHTML = `<li class="dropdown-no-results">Nenhum produto no histórico para “${escapeHtml(query)}”</li>`;
+    setCompareExpanded(true);
+    return;
+  }
+
+  elCompareDropdown.innerHTML = cmpFiltered.map((name, index) => {
+    const product = PRODUCT_BY_NAME.get(name);
+    const pseudo = product || { descricao: name, tipo: 'aparelho', categoria: '' };
+    const lastBalcao = getHistorySeries(name, DEFAULT_COMPARE_PLAN).filter(value => value !== null).pop();
+    const subtext = lastBalcao != null ? `Balcão: ${formatPrice(lastBalcao)}` : '';
+    const tag = product ? '' : '<span class="tag">Fora da tabela atual</span>';
+    return `
+      <li class="dropdown-item" id="compareOption${index}" role="option" aria-selected="false" data-index="${index}">
+        ${logoHtmlFor(pseudo, 'dropdown-item-logo')}
+        <div class="dropdown-item-info">
+          <div class="dropdown-item-name">${highlight(name, query)}</div>
+          ${subtext ? `<div class="dropdown-item-sub">${subtext}</div>` : ''}
+        </div>
+        <div class="dropdown-item-tags">${tag}</div>
+      </li>`;
+  }).join('');
+  setCompareExpanded(true);
+}
+
+function moveCompareFocus(step) {
+  const items = elCompareDropdown.querySelectorAll('.dropdown-item');
+  if (!items.length) return;
+  cmpFocusIndex = step > 0
+    ? Math.min(cmpFocusIndex + 1, items.length - 1)
+    : (cmpFocusIndex <= 0 ? items.length - 1 : cmpFocusIndex - 1);
+  items.forEach((el, i) => {
+    const active = i === cmpFocusIndex;
+    el.classList.toggle('focused', active);
+    el.setAttribute('aria-selected', String(active));
+  });
+  elCompareInput.setAttribute('aria-activedescendant', items[cmpFocusIndex].id);
+  items[cmpFocusIndex].scrollIntoView({ block: 'nearest' });
+}
+
+/* ── 18. Seleção de produto e planos ── */
+/** Mantém os planos pedidos que existem para o produto; senão usa PRÉ (Balcão) ou o primeiro disponível. */
+function pickComparePlans(name, preferred) {
+  const available = getHistoryPlans(name);
+  const kept = preferred.filter(plan => available.includes(plan)).slice(0, MAX_COMPARE_PLANS);
+  if (kept.length) return kept;
+  const first = available.includes(DEFAULT_COMPARE_PLAN) ? DEFAULT_COMPARE_PLAN : available[0];
+  return first ? [first] : [];
+}
+
+function selectCompareProduct(name, preferredPlans = cmpPlans) {
+  if (!HISTORY || !Object.prototype.hasOwnProperty.call(HISTORY.produtos, name)) return;
+  cmpProduct = name;
+  cmpPlans = pickComparePlans(name, preferredPlans);
+  cmpActiveIndex = -1;
+  assignCompareColors();
+
+  if (!planBoxTouched) {
+    elComparePlansBox.open = window.matchMedia?.('(min-width: 761px)').matches ?? true;
+    planBoxTouched = true;
+  }
+
+  elCompareInput.value = name;
+  elCompareClear.hidden = false;
+  setCompareExpanded(false);
+  renderCompare();
+}
+
+function toggleComparePlan(plan) {
+  const index = cmpPlans.indexOf(plan);
+  if (index >= 0) {
+    if (cmpPlans.length === 1) return;          // mantém pelo menos um plano no gráfico
+    cmpPlans.splice(index, 1);
+  } else {
+    if (cmpPlans.length >= MAX_COMPARE_PLANS) return;
+    cmpPlans.push(plan);
+  }
+  assignCompareColors();
+  cmpActiveIndex = -1;
+  renderComparePlans();
+  renderCompareCards();
+  renderCompareTable();
+  renderChart();
+}
+
+/** Abre o comparador já com um produto (e planos) escolhidos. */
+function openCompare(name, plans = []) {
+  switchMode('compare');
+  selectCompareProduct(name, plans);
+}
+
+/* ── 19. Renderização ── */
+function renderCompare() {
+  const active = Boolean(HISTORY) && cmpProduct !== null;
+  elCompareEmpty.hidden = active;
+  elCompareResult.hidden = !active;
+  elComparePlansBox.hidden = !active;
+  if (!active) return;
+
+  renderCompareHeader();
+  renderComparePlans();
+  renderCompareCards();
+  renderCompareTable();
+  renderChart();
+}
+
+function renderCompareHeader() {
+  const product = PRODUCT_BY_NAME.get(cmpProduct);
+  const pseudo = product || { descricao: cmpProduct, tipo: 'aparelho', categoria: '' };
+  const brand = getBrand(cmpProduct);
+  if (brand && BRAND_LOGOS[brand]) {
+    elCompareLogo.className = 'product-logo';
+    elCompareLogo.innerHTML = BRAND_LOGOS[brand];
+  } else {
+    const isAcc = pseudo.tipo === 'acessorio';
+    elCompareLogo.className = 'product-logo icon-only';
+    elCompareLogo.innerHTML = isAcc ? getAccessoryIcon(pseudo.categoria) : '📱';
+  }
+  elCompareProductType.textContent = !product ? 'Fora da tabela atual'
+    : product.codigo === 'LOJA' ? 'Acessório de loja'
+    : product.tipo === 'acessorio' ? `Acessório · ${product.categoria || 'Geral'}`
+    : 'Aparelho';
+  elCompareProductName.textContent = cmpProduct;
+}
+
+function renderComparePlans() {
+  const available = getHistoryPlans(cmpProduct);
+  const full = cmpPlans.length >= MAX_COMPARE_PLANS;
+  elComparePlansHelper.textContent = `${cmpPlans.length} de ${MAX_COMPARE_PLANS} selecionados`;
+
+  elComparePlans.innerHTML = HISTORY_GROUPS.map(({ key, title }) => {
+    const plans = available.filter(plan => historyPlanGroup(plan) === key);
+    if (!plans.length) return '';
+    const chips = plans.map(plan => {
+      const selected = cmpPlans.includes(plan);
+      return `<button type="button" class="plan-chip" data-plan="${escapeAttribute(plan)}"
+        aria-pressed="${selected}" ${!selected && full ? 'disabled' : ''}
+        ${selected ? `style="${colorStyle(plan)}"` : ''}>${escapeHtml(plan)}</button>`;
+    }).join('');
+    return `<div class="plan-group"><p class="plan-group-title">${title}</p><div class="plan-chips">${chips}</div></div>`;
+  }).join('');
+}
+
+function renderCompareCards() {
+  const last = HISTORY_DATES.length - 1;
+  elCompareCards.innerHTML = cmpPlans.map(plan => {
+    const values = getHistorySeries(cmpProduct, plan);
+    const known = values.filter(value => value !== null);
+    const current = values[last];
+    const change = last > 0 ? priceChange(values[last - 1], current) : null;
+    const min = Math.min(...known);
+    const max = Math.max(...known);
+
+    const price = current !== null
+      ? `<p class="compare-card-price">${formatPrice(current)}</p>`
+      : `<p class="compare-card-price is-off">Fora da última tabela</p>`;
+    const meta = [];
+    if (change) meta.push(deltaHtml(change));
+    else if (current !== null && last > 0 && values[last - 1] === null) meta.push('Novo nesta tabela');
+    if (known.length > 1 && min !== max) meta.push(`<span class="nowrap">Mín. ${formatPrice(min)}</span> · <span class="nowrap">Máx. ${formatPrice(max)}</span>`);
+    else if (known.length) meta.push(`Sem variação em ${HISTORY_DATES.length === 1 ? '1 tabela' : `${known.length} tabelas`}`);
+
+    return `
+      <article class="compare-card" style="${colorStyle(plan)}">
+        <p class="compare-card-name" title="${escapeAttribute(plan)}">${escapeHtml(plan)}</p>
+        ${price}
+        ${meta.map(item => `<p class="compare-card-meta">${item}</p>`).join('')}
+      </article>`;
+  }).join('');
+}
+
+function renderCompareTable() {
+  const total = HISTORY_DATES.length;
+  const series = cmpPlans.map(plan => ({ plan, values: getHistorySeries(cmpProduct, plan) }));
+  elCompareTableCount.textContent = total;
+
+  const head = `<thead><tr><th scope="col">Tabela</th>${series.map(({ plan }) =>
+    `<th scope="col" style="${colorStyle(plan)}"><i aria-hidden="true"></i>${escapeHtml(plan)}</th>`).join('')}</tr></thead>`;
+
+  const rows = [];
+  for (let i = total - 1; i >= 0; i--) {   // tabela mais recente primeiro
+    const cells = series.map(({ values }) => {
+      const value = values[i];
+      if (value === null) return '<td class="is-missing">—</td>';
+      const change = i > 0 ? priceChange(values[i - 1], value) : null;
+      return `<td>${formatPrice(value)}${deltaHtml(change, { short: true })}</td>`;
+    }).join('');
+    rows.push(`<tr><th scope="row">${formatDateBR(HISTORY_DATES[i])}</th>${cells}</tr>`);
+  }
+  elCompareTable.innerHTML = `${head}<tbody>${rows.join('')}</tbody>`;
+}
+
+/* ── 20. Gráfico de linhas (SVG, redesenhado conforme a largura) ── */
+function formatAxisPrice(value, withCurrency) {
+  const text = Number.isInteger(value)
+    ? value.toLocaleString('pt-BR')
+    : value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return withCurrency ? `R$ ${text}` : text;
+}
+
+function buildLinePath(values, xAt, yAt) {
+  let path = '';
+  let open = false;
+  values.forEach((value, i) => {
+    if (value === null) { open = false; return; }   // lacuna: não liga pontos separados por tabelas sem preço
+    path += `${open ? 'L' : 'M'}${roundCoord(xAt(i))} ${roundCoord(yAt(value))}`;
+    open = true;
+  });
+  return path;
+}
+
+function renderChart() {
+  if (!HISTORY || cmpProduct === null || !cmpPlans.length) return;
+  const width = Math.floor(elChartWrap.clientWidth);
+  if (width < 10) return;   // aba oculta: o gráfico é desenhado quando ela abrir
+
+  chartWidth = width;
+  chartSeries = cmpPlans.map(plan => ({ plan, color: colorStyle(plan), values: getHistorySeries(cmpProduct, plan) }));
+
+  const count = HISTORY_DATES.length;
+  const compact = width < 520;
+  const height = Math.round(Math.min(440, Math.max(250, width * (compact ? 0.74 : 0.44))));
+  const margin = { top: 14, right: compact ? 18 : 24, bottom: compact ? 32 : 36, left: compact ? 54 : 70 };
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+  const xAt = i => (count === 1 ? margin.left + plotW / 2 : margin.left + (plotW * i) / (count - 1));
+
+  const allValues = chartSeries.flatMap(item => item.values).filter(value => value !== null);
+  if (!allValues.length) return;
+  const scale = niceScale(Math.min(...allValues), Math.max(...allValues), compact ? 4 : 5);
+  const yAt = value => margin.top + plotH - ((value - scale.min) / (scale.max - scale.min)) * plotH;
+
+  const parts = [];
+
+  // Grade e rótulos do eixo Y
+  scale.ticks.forEach(tick => {
+    const y = roundCoord(yAt(tick));
+    parts.push(`<line class="chart-grid" x1="${margin.left}" x2="${width - margin.right}" y1="${y}" y2="${y}"/>`);
+    parts.push(`<text class="chart-axis-text" x="${margin.left - 8}" y="${y + 4}" text-anchor="end">${formatAxisPrice(tick, !compact)}</text>`);
+  });
+
+  // Rótulos do eixo X (reduzidos para caber; a última data sempre aparece)
+  const labelRoom = HISTORY_SPANS_YEARS ? 78 : 58;
+  const maxLabels = Math.max(2, Math.floor(plotW / labelRoom));
+  const every = Math.max(1, Math.ceil(count / maxLabels));
+  for (let i = count - 1; i >= 0; i -= every) {
+    parts.push(`<text class="chart-axis-text" x="${roundCoord(xAt(i))}" y="${height - margin.bottom + 20}" text-anchor="middle">${formatDateShort(HISTORY_DATES[i])}</text>`);
+  }
+
+  // Linhas e pontos
+  const showDots = count <= 30;
+  chartSeries.forEach(({ plan, color, values }) => {
+    const path = buildLinePath(values, xAt, yAt);
+    const lastIndex = values.reduce((found, value, i) => (value !== null ? i : found), -1);
+    const dots = values.map((value, i) => {
+      if (value === null || (!showDots && i !== lastIndex)) return '';
+      return `<circle class="chart-dot${i === lastIndex ? ' is-last' : ''}" cx="${roundCoord(xAt(i))}" cy="${roundCoord(yAt(value))}" r="${i === lastIndex ? 4.5 : 3.5}"/>`;
+    }).join('');
+    parts.push(`<g style="${color}" data-plan="${escapeAttribute(plan)}">${path ? `<path class="chart-line" d="${path}"/>` : ''}${dots}</g>`);
+  });
+
+  parts.push('<g class="chart-active"></g>');
+
+  chartGeometry = { count, left: margin.left, top: margin.top, plotW, plotH, width, height, xAt, yAt };
+  elChartSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  elChartSvg.setAttribute('aria-label',
+    `Gráfico de linhas com a evolução do preço de ${cmpProduct} em ${count} ${count === 1 ? 'tabela' : 'tabelas'}, `
+    + `de ${formatDateBR(HISTORY_DATES[0])} a ${formatDateBR(HISTORY_DATES[count - 1])}. Os valores estão na tabela abaixo.`);
+  elChartSvg.innerHTML = parts.join('');
+
+  elChartHint.textContent = count === 1
+    ? 'Só há uma tabela no histórico. Envie outra na pasta tabelas/ para começar a comparar.'
+    : 'Passe o mouse ou toque no gráfico para ver os valores de cada tabela.';
+  renderChartActive();
+}
+
+/** Destaca uma tabela no gráfico: linha guia, pontos e tooltip. */
+function renderChartActive() {
+  const layer = elChartSvg.querySelector('.chart-active');
+  if (!layer || !chartGeometry) return;
+
+  if (cmpActiveIndex < 0 || cmpActiveIndex >= chartGeometry.count) {
+    layer.innerHTML = '';
+    elChartTooltip.hidden = true;
+    return;
+  }
+
+  const { xAt, yAt, top, plotH } = chartGeometry;
+  const x = roundCoord(xAt(cmpActiveIndex));
+  const dots = chartSeries.map(({ color, values }) => {
+    const value = values[cmpActiveIndex];
+    return value === null ? '' : `<circle class="chart-active-dot" style="${color}" cx="${x}" cy="${roundCoord(yAt(value))}" r="5.5"/>`;
+  }).join('');
+  layer.innerHTML = `<line class="chart-guide" x1="${x}" x2="${x}" y1="${top}" y2="${top + plotH}"/>${dots}`;
+
+  const rows = chartSeries.map(({ plan, color, values }) => {
+    const value = values[cmpActiveIndex];
+    const change = cmpActiveIndex > 0 ? priceChange(values[cmpActiveIndex - 1], value) : null;
+    const delta = deltaHtml(change, { short: chartWidth < 520 });   // no celular, sem a porcentagem
+    return `
+      <div class="chart-tooltip-row" style="${color}">
+        <i aria-hidden="true"></i>
+        <span class="chart-tooltip-name">${escapeHtml(plan)}</span>
+        <span class="chart-tooltip-value">${value === null ? '—' : formatPrice(value)}</span>
+        ${delta ? `<span class="chart-tooltip-delta">${delta}</span>` : ''}
+      </div>`;
+  }).join('');
+  elChartTooltip.innerHTML = `<p class="chart-tooltip-date">Tabela de ${formatDateBR(HISTORY_DATES[cmpActiveIndex])}</p>${rows}`;
+  elChartTooltip.hidden = false;
+
+  // Posiciona ao lado da linha guia, sem sair da área do gráfico
+  const tipWidth = elChartTooltip.offsetWidth;
+  let left = x + 14;
+  if (left + tipWidth > chartWidth - 4) left = x - tipWidth - 14;
+  left = Math.max(4, Math.min(left, chartWidth - tipWidth - 4));
+  elChartTooltip.style.left = `${Math.round(left)}px`;
+  elChartTooltip.style.top = `${top + 4}px`;
+}
+
+function setChartActive(index) {
+  if (index === cmpActiveIndex) return;
+  cmpActiveIndex = index;
+  renderChartActive();
+}
+
+function chartIndexFromPointer(event) {
+  if (!chartGeometry) return -1;
+  const { count, left, plotW } = chartGeometry;
+  if (count === 1) return 0;
+  const rect = elChartSvg.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * (chartGeometry.width / rect.width);
+  const ratio = (x - left) / plotW;
+  return Math.min(count - 1, Math.max(0, Math.round(ratio * (count - 1))));
+}
+
+/* ── 21. O que mudou entre as duas últimas tabelas ── */
+function populateChangesPlans() {
+  const groups = HISTORY_GROUPS.map(({ key, title }) => {
+    const plans = HISTORY.planos.filter(plan => historyPlanGroup(plan) === key);
+    if (!plans.length) return '';
+    return `<optgroup label="${escapeAttribute(title)}">${plans.map(plan =>
+      `<option value="${escapeAttribute(plan)}">${escapeHtml(plan)}</option>`).join('')}</optgroup>`;
+  }).join('');
+  elChangesPlanSelect.innerHTML = groups;
+  if (HISTORY.planos.includes(DEFAULT_COMPARE_PLAN)) elChangesPlanSelect.value = DEFAULT_COMPARE_PLAN;
+}
+
+function changeItemHtml({ name, before, after, change }) {
+  return `
+    <li>
+      <button type="button" class="change-item" data-name="${escapeAttribute(name)}">
+        <span class="change-item-name" title="${escapeAttribute(name)}">${escapeHtml(name)}</span>
+        <span class="change-item-values">
+          <span>${formatPrice(before)} → ${formatPrice(after)}</span>
+          ${deltaHtml(change)}
+        </span>
+      </button>
+    </li>`;
+}
+
+function renderChanges() {
+  const total = HISTORY_DATES.length;
+  if (total < 2) {
+    elChangesRange.textContent = 'Envie mais uma tabela para ver o que mudou.';
+    elChangesSummary.innerHTML = '';
+    elChangesLists.innerHTML = '';
+    elChangesPlanSelect.disabled = true;
+    return;
+  }
+  elChangesPlanSelect.disabled = false;
+
+  const plan = elChangesPlanSelect.value;
+  const before = total - 2;
+  const after = total - 1;
+  elChangesRange.textContent = `${formatDateBR(HISTORY_DATES[before])} → ${formatDateBR(HISTORY_DATES[after])}`;
+
+  const drops = [];
+  const rises = [];
+  let entered = 0;
+  let left = 0;
+  HISTORY_NAMES.forEach(name => {
+    const values = getHistorySeries(name, plan);
+    const previous = values[before];
+    const current = values[after];
+    if (previous === null && current !== null) entered++;
+    else if (previous !== null && current === null) left++;
+    else if (previous !== null && current !== null) {
+      const change = priceChange(previous, current);
+      if (change.kind === 'down') drops.push({ name, before: previous, after: current, change });
+      else if (change.kind === 'up') rises.push({ name, before: previous, after: current, change });
+    }
+  });
+  drops.sort((a, b) => a.change.diff - b.change.diff);   // maiores quedas primeiro
+  rises.sort((a, b) => b.change.diff - a.change.diff);   // maiores altas primeiro
+
+  const pills = [];
+  if (drops.length)  pills.push(`<span class="changes-pill is-down">▼ ${drops.length} ${drops.length === 1 ? 'baixou' : 'baixaram'}</span>`);
+  if (rises.length)  pills.push(`<span class="changes-pill is-up">▲ ${rises.length} ${rises.length === 1 ? 'subiu' : 'subiram'}</span>`);
+  if (entered)       pills.push(`<span class="changes-pill">+ ${entered} ${entered === 1 ? 'entrou' : 'entraram'}</span>`);
+  if (left)          pills.push(`<span class="changes-pill">− ${left} ${left === 1 ? 'saiu' : 'saíram'}</span>`);
+  elChangesSummary.innerHTML = pills.join('');
+
+  if (!pills.length) {
+    elChangesLists.innerHTML = '<p class="changes-empty">Nenhuma mudança de preço neste plano entre as duas últimas tabelas.</p>';
+    return;
+  }
+
+  const LIMIT = 5;
+  const group = (title, items) => items.length ? `
+    <p class="changes-group-title">${title}</p>
+    <ul class="changes-list">${items.slice(0, LIMIT).map(changeItemHtml).join('')}</ul>
+    ${items.length > LIMIT ? `<p class="changes-more">e mais ${items.length - LIMIT}…</p>` : ''}` : '';
+  elChangesLists.innerHTML = group('Maiores quedas', drops) + group('Maiores altas', rises);
+}
+
+function initCompare() {
+  const usable = Boolean(HISTORY) && HISTORY_DATES.length > 0 && HISTORY_NAMES.length > 0;
+  elCompareUnavailable.hidden = usable;
+  elCompareLayout.hidden = !usable;
+  elModeCompareTab.hidden = false;
+  setCompareExpanded(false);
+  if (!usable) return;
+
+  const total = HISTORY_DATES.length;
+  elCompareIntro.textContent = total === 1
+    ? `Só há 1 tabela no histórico (${formatDateBR(HISTORY_DATES[0])}). Envie outra na pasta tabelas/ para começar a comparar.`
+    : `${total} tabelas no histórico, de ${formatDateBR(HISTORY_DATES[0])} a ${formatDateBR(HISTORY_DATES[total - 1])}.`;
+  populateChangesPlans();
+  renderChanges();
+}
+
+
+/* ══════════════════════════════════════════════════════════
    PARTE C — TROCA DE MODO
    ══════════════════════════════════════════════════════════ */
+const MODES = ['search', 'catalog', 'compare'];
+
 function switchMode(mode) {
-  currentMode = mode === 'catalog' ? 'catalog' : 'search';
-  const isSearch = currentMode === 'search';
+  currentMode = MODES.includes(mode) ? mode : 'search';
 
-  elModeSearchTab.classList.toggle('active', isSearch);
-  elModeCatalogTab.classList.toggle('active', !isSearch);
-  elModeSearchTab.setAttribute('aria-selected', String(isSearch));
-  elModeCatalogTab.setAttribute('aria-selected', String(!isSearch));
-  elModeSearchTab.tabIndex = isSearch ? 0 : -1;
-  elModeCatalogTab.tabIndex = isSearch ? -1 : 0;
+  const views = {
+    search:  [elModeSearchTab,  elModeSearch],
+    catalog: [elModeCatalogTab, elModeCatalog],
+    compare: [elModeCompareTab, elModeCompare],
+  };
+  Object.entries(views).forEach(([key, [tab, panel]]) => {
+    const active = key === currentMode;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    panel.hidden = !active;
+  });
 
-  elModeSearch.hidden  = !isSearch;
-  elModeCatalog.hidden = isSearch;
-
-  // Ao entrar no catálogo pela primeira vez, renderiza
-  if (!isSearch) renderCatalog();
+  // Ao entrar no catálogo / comparador, desenha o conteúdo (o gráfico precisa da aba visível)
+  if (currentMode === 'catalog') renderCatalog();
+  if (currentMode === 'compare') renderCompare();
 }
 
 
@@ -874,15 +1541,20 @@ function switchMode(mode) {
    ══════════════════════════════════════════════════════════ */
 
 // ── Troca de modo ──
-elModeSearchTab.addEventListener('click', () => switchMode('search'));
-elModeCatalogTab.addEventListener('click', () => switchMode('catalog'));
-[elModeSearchTab, elModeCatalogTab].forEach(tab => {
+const MODE_TABS = { search: elModeSearchTab, catalog: elModeCatalogTab, compare: elModeCompareTab };
+Object.entries(MODE_TABS).forEach(([mode, tab]) => {
+  tab.addEventListener('click', () => switchMode(mode));
   tab.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const nextMode = currentMode === 'search' ? 'catalog' : 'search';
-    switchMode(nextMode);
-    (nextMode === 'search' ? elModeSearchTab : elModeCatalogTab).focus();
+    const current = MODES.indexOf(currentMode);
+    let next = current;
+    if (event.key === 'ArrowRight') next = (current + 1) % MODES.length;
+    if (event.key === 'ArrowLeft')  next = (current - 1 + MODES.length) % MODES.length;
+    if (event.key === 'Home')       next = 0;
+    if (event.key === 'End')        next = MODES.length - 1;
+    switchMode(MODES[next]);
+    MODE_TABS[MODES[next]].focus();
   });
 });
 
@@ -991,6 +1663,99 @@ elCatalogPriceClear.addEventListener('click', () => {
 });
 
 
+// ── Comparador ──
+elProductHistoryBtn.addEventListener('click', () => {
+  if (!selectedProduct) return;
+  openCompare(selectedProduct.descricao, selectedPlan ? [selectedPlan] : []);
+});
+
+elCompareInput.addEventListener('input', () => {
+  const query = elCompareInput.value.trim();
+  elCompareClear.hidden = query.length === 0;
+  renderCompareDropdown(query);
+});
+
+elCompareInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown')      { e.preventDefault(); moveCompareFocus(1); }
+  else if (e.key === 'ArrowUp')   { e.preventDefault(); moveCompareFocus(-1); }
+  else if (e.key === 'Enter' && cmpFocusIndex >= 0 && cmpFiltered[cmpFocusIndex]) {
+    e.preventDefault();
+    selectCompareProduct(cmpFiltered[cmpFocusIndex]);
+  } else if (e.key === 'Escape') setCompareExpanded(false);
+});
+
+elCompareInput.addEventListener('focus', () => {
+  if (elCompareInput.value.trim().length >= 2 && elCompareInput.value.trim() !== cmpProduct) {
+    renderCompareDropdown(elCompareInput.value.trim());
+  }
+});
+
+elCompareDropdown.addEventListener('pointerdown', e => {
+  const item = e.target.closest('.dropdown-item');
+  if (!item) return;
+  e.preventDefault();
+  const name = cmpFiltered[Number(item.dataset.index)];
+  if (name) selectCompareProduct(name);
+});
+
+elCompareClear.addEventListener('click', () => {
+  elCompareInput.value = '';
+  elCompareClear.hidden = true;
+  setCompareExpanded(false);
+  cmpProduct = null;
+  cmpPlans = [];
+  cmpActiveIndex = -1;
+  renderCompare();
+  elCompareInput.focus();
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#compareSearchWrapper')) setCompareExpanded(false);
+});
+
+elComparePlans.addEventListener('click', e => {
+  const chip = e.target.closest('.plan-chip');
+  if (chip && !chip.disabled) toggleComparePlan(chip.dataset.plan);
+});
+
+// Gráfico: mouse e toque mostram os valores; as setas fazem o mesmo pelo teclado
+elChartSvg.addEventListener('pointermove', e => setChartActive(chartIndexFromPointer(e)));
+elChartSvg.addEventListener('pointerdown', e => setChartActive(chartIndexFromPointer(e)));
+elChartSvg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') setChartActive(-1); });
+document.addEventListener('pointerdown', e => {
+  if (!e.target.closest('#chartWrap')) setChartActive(-1);
+});
+elChartWrap.addEventListener('keydown', e => {
+  if (!chartGeometry) return;
+  const last = chartGeometry.count - 1;
+  if (e.key === 'ArrowRight')     setChartActive(cmpActiveIndex < 0 ? last : Math.min(last, cmpActiveIndex + 1));
+  else if (e.key === 'ArrowLeft') setChartActive(cmpActiveIndex < 0 ? last : Math.max(0, cmpActiveIndex - 1));
+  else if (e.key === 'Home')      setChartActive(0);
+  else if (e.key === 'End')       setChartActive(last);
+  else if (e.key === 'Escape')    setChartActive(-1);
+  else return;
+  e.preventDefault();
+});
+
+// Redesenha o gráfico quando a largura muda (rotação da tela, janela, painel)
+if (typeof ResizeObserver === 'function') {
+  new ResizeObserver(() => {
+    if (Math.floor(elChartWrap.clientWidth) !== chartWidth) renderChart();
+  }).observe(elChartWrap);
+} else {
+  window.addEventListener('resize', renderChart);
+}
+
+elChangesPlanSelect.addEventListener('change', renderChanges);
+elChangesLists.addEventListener('click', e => {
+  const item = e.target.closest('.change-item');
+  if (!item) return;
+  selectCompareProduct(item.dataset.name, [elChangesPlanSelect.value]);
+  const picker = elCompareInput.closest('.compare-picker');
+  if (picker && picker.getBoundingClientRect().top < 70) picker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+
 /* ──────────────────────────────────────────────────────────
    14. INICIALIZAÇÃO
    ────────────────────────────────────────────────────────── */
@@ -998,6 +1763,7 @@ try {
   if (!PRODUCTS.length) throw new Error('Nenhum produto válido foi carregado.');
   populateCatalogPlans();
   populateCatalogBrands();
+  initCompare();
 } catch (error) {
   showFatalError(error instanceof Error ? error.message : 'Erro inesperado ao iniciar a consulta.');
 }

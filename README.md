@@ -37,6 +37,7 @@ Desenvolvida para uso interno de vendedores e revendedores, permitindo consultar
 | 🌓 **Tema claro e escuro** | Botão acessível que segue o tema do aparelho na primeira visita e lembra a preferência escolhida |
 | ⚡ **Boost Trade In** | Ativa/desativa o desconto de troca direto no card, quando o produto tem Boost |
 | 📚 **Catálogo por plano** | Lista os produtos com o preço já aplicado ao plano do cliente, com filtros de marca, tipo e faixa de preço digitável |
+| 📈 **Comparador de preços** | Gráfico de linhas com a evolução do preço de cada produto a cada tabela enviada (até 6 planos ao mesmo tempo), resumo com variação e menor/maior preço, tabela de valores e lista do que mudou na última tabela |
 
 ---
 
@@ -76,18 +77,26 @@ Digite o nome do aparelho ou acessório no campo de busca, selecione o plano des
 
 ## 🔄 Como Atualizar a Tabela
 
-A tabela é atualizada semanalmente pela TIM. Para atualizar o site:
+A tabela é atualizada semanalmente pela TIM. Para atualizar o site **e** o Comparador de preços:
 
-1. Renomeie o novo arquivo `.xlsx` para **`tabela_precos.xlsx`**
-2. Faça o upload no repositório (substituindo o anterior)
-3. O GitHub Actions detecta a mudança e roda `processar_planilha.py` automaticamente
-4. Em ~1 minuto, `script.js`, `index.html` e `README.md` são atualizados e o site entra no ar
+1. Dê à nova planilha `.xlsx` o nome da **data**, no formato `DD.MM.xlsx` (ex.: `22.10.xlsx`)
+2. Envie o arquivo para a pasta **`tabelas/`** do repositório
+3. O GitHub Actions detecta o envio e roda `processar_historico.py` e `processar_planilha.py` automaticamente
+4. Em ~1 minuto o site entra no ar com a tabela nova e o gráfico atualizado
 
-> **Nota:** A data é lida do campo `DATA INÍCIO`, os planos são detectados automaticamente, e o **Boost Trade In** é lido da aba `TRADE IN` e casado por código — tudo sem edição manual.
+> **Nota:** a data do gráfico vem do **nome do arquivo**. Se o nome não tiver o ano, ele é deduzido pela data `DATA INÍCIO` da própria planilha (aceita também `22.10.2026.xlsx` e `2026-10-22.xlsx`). Arquivos fora desse padrão são ignorados com um aviso na execução do Actions. Se uma planilha estiver quebrada, a execução falha e nada é publicado até ela ser corrigida ou removida.
 
-O processador recria a lista de Boosts do zero em cada atualização. Quando um Boost é removido da planilha, ele também deixa de aparecer no site. O endereço do `script.js` recebe uma versão baseada no conteúdo atualizado, evitando que o navegador reutilize dados antigos do cache.
+**A planilha mais recente da pasta vira a tabela do site.** Quando ela é mais nova que a tabela atual, é copiada para `tabela_precos.xlsx` automaticamente. Para completar o histórico com semanas antigas, basta enviar a planilha antiga com a data dela — ela entra no gráfico sem alterar a tabela atual. Para corrigir uma semana, envie o arquivo corrigido com o mesmo nome.
 
-O `style.css` também recebe uma versão automática. O site valida a estrutura do HTML, a sintaxe do JavaScript e a sincronização dos Boosts antes de publicar uma atualização. Planos novos encontrados na planilha são incluídos automaticamente nos grupos Mobile ou TIM Fibra.
+O envio direto de `tabela_precos.xlsx` continua funcionando, mas não entra no histórico do gráfico.
+
+A data de vigência é lida do campo `DATA INÍCIO`, os planos são detectados automaticamente, e o **Boost Trade In** é lido da aba `TRADE IN` e casado por código — tudo sem edição manual. O processador recria a lista de Boosts do zero em cada atualização. Quando um Boost é removido da planilha, ele também deixa de aparecer no site. O endereço do `script.js` recebe uma versão baseada no conteúdo atualizado, evitando que o navegador reutilize dados antigos do cache.
+
+O `style.css` e o `historico.js` também recebem uma versão automática. O site valida a estrutura do HTML, a sintaxe do JavaScript, o histórico e a sincronização dos Boosts antes de publicar uma atualização. Planos novos encontrados na planilha são incluídos automaticamente nos grupos Mobile ou TIM Fibra.
+
+### 📈 Como funciona o Comparador
+
+O `historico.js` guarda, para cada produto e plano, apenas os pontos em que o preço **mudou**, então continua pequeno mesmo com muitas semanas. O gráfico é desenhado em SVG puro, sem bibliotecas, e se ajusta à largura da tela (celular, tablet e desktop). Passe o mouse, toque ou use as setas do teclado para ver os valores de cada tabela. Nos produtos que aparecem em uma busca, o botão **Ver histórico de preços** abre o Comparador já nesse produto.
 
 ---
 
@@ -103,9 +112,12 @@ Tabela-de-preco-da-TIM/
 ├── index.html              # HTML semântico (header / main / footer)
 ├── style.css               # Estilos organizados por seções comentadas
 ├── script.js               # Lógica JavaScript com comentários
-├── processar_planilha.py   # Script Python de extração da planilha
-├── tests/                  # Testes da sincronização de Boosts
-├── tabela_precos.xlsx      # Planilha oficial TIM (substituir a cada semana)
+├── historico.js            # Histórico de preços do Comparador (gerado automaticamente)
+├── processar_planilha.py   # Script Python de extração da planilha atual
+├── processar_historico.py  # Script Python que monta o histórico a partir de tabelas/
+├── tests/                  # Testes de Boosts, histórico e integridade do site
+├── tabelas/                # Planilhas por data (22.10.xlsx, 29.10.xlsx...) — envie aqui
+├── tabela_precos.xlsx      # Tabela atual do site (atualizada sozinha a partir de tabelas/)
 ├── README.md               # Este arquivo
 └── LICENSE                 # Licença MIT
 ```
@@ -116,7 +128,7 @@ Tabela-de-preco-da-TIM/
 
 - **HTML5 semântico** — `<header>`, `<main>`, `<section>`, `<article>`, `<footer>`, `<details>`
 - **CSS3** — variáveis, grid, animações, responsivo mobile-first
-- **JavaScript vanilla** — sem frameworks ou dependências externas
+- **JavaScript vanilla** — sem frameworks ou dependências externas (o gráfico do Comparador é SVG próprio)
 - **Google Fonts** — Inter + DM Sans
 - **Python + pandas + openpyxl** — extração automática dos dados do `.xlsx`
 - **GitHub Actions** — CI/CD para publicação automática
