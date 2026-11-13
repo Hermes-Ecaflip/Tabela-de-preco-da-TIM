@@ -1,1 +1,7 @@
-
+[
+  "tests/test_site_integrity.py::SiteIntegrityTests::test_alternador_de_tema_esta_completo",
+  "tests/test_site_integrity.py::SiteIntegrityTests::test_arquivos_estaticos_possuem_versao_de_cache",
+  "tests/test_site_integrity.py::SiteIntegrityTests::test_css_esta_estruturalmente_balanceado",
+  "tests/test_site_integrity.py::SiteIntegrityTests::test_html_nao_tem_ids_duplicados",
+  "tests/test_site_integrity.py::SiteIntegrityTests::test_ids_usados_no_javascript_existem_no_html"
+]
