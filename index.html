@@ -67,6 +67,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"></path><path d="m7 15 4-4 3 3 5-6"></path></svg>
         Comparador
       </button>
+      <button class="mode-tab" id="modeCommissionTab" role="tab" aria-selected="false" aria-controls="modeCommission" data-mode="commission" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"></path><path d="M7 14l4-4 3 3 5-7"></path><path d="M16 6h3v3"></path></svg>
+        Simulador de comissão
+      </button>
     </div>
   </nav>
 
@@ -408,6 +412,99 @@
       </div>
     </div>
 
+    <!-- SIMULADOR DE COMISSIONAMENTO -->
+    <section id="modeCommission" class="commission-panel" role="tabpanel" aria-labelledby="modeCommissionTab" tabindex="0" hidden>
+      <div class="commission-heading">
+        <span class="section-kicker">Planejamento de ganhos</span>
+        <h2>Simulador de comissionamento</h2>
+        <p>Informe as quantidades e os faturamentos do mês. Os valores são calculados automaticamente com base na planilha de comissionamento enviada.</p>
+      </div>
+      <div class="commission-summary" aria-live="polite">
+        <div class="commission-total-card">
+          <span>Comissão total estimada</span>
+          <strong id="commissionGrandTotal">R$ 0,00</strong>
+          <small>Serviços + receita contratada + produtos</small>
+        </div>
+        <div class="commission-summary-card"><span>Serviços</span><strong id="commissionServicesTotal">R$ 0,00</strong></div>
+        <div class="commission-summary-card"><span>Produtos</span><strong id="commissionProductsTotal">R$ 0,00</strong></div>
+      </div>
+
+      <div class="commission-grid">
+        <section class="commission-card">
+          <div class="commission-card-heading"><div><span class="section-kicker">01 · Serviços</span><h3>Comissões por serviço</h3></div><span class="commission-tag">Valor fixo</span></div>
+          <p class="commission-help">Preencha a quantidade realizada em cada serviço.</p>
+          <div class="commission-table-wrap"><table class="commission-table">
+            <thead><tr><th>Serviço</th><th>Quantidade</th><th>Unitário</th><th>Total</th></tr></thead>
+            <tbody id="serviceCommissionRows"></tbody>
+          </table></div>
+          <div class="commission-subtotal"><span>Subtotal de serviços</span><strong id="serviceFixedSubtotal">R$ 0,00</strong></div>
+          <div class="commission-revenue">
+            <h4>Comissionamento sobre receita contratada</h4>
+            <label>Receita contratada no mês <input id="contractedRevenue" type="number" min="0" step="0.01" value="0"></label>
+            <label>Faixa de atingimento
+              <select id="serviceTier"><option value="0.30">Branca · 30%</option><option value="0.45">Preta · 45%</option></select>
+            </label>
+            <div class="commission-line"><span>Comissão sobre receita</span><strong id="serviceRevenueCommission">R$ 0,00</strong></div>
+            <div class="commission-line commission-line-total"><span>Total de serviços</span><strong id="serviceGrandTotal">R$ 0,00</strong></div>
+          </div>
+          <details class="commission-rules"><summary>Regras de serviços</summary><ul>
+            <li>Up Grade: considerar contratos com status liberado no Thales.</li><li>Upgrade de titular para família: fluxo de comissionamento de 60 dias.</li><li>Conversões: considerar linhas ativas e adimplentes na TIM.</li><li>Fibra: comissão mediante instalação.</li><li>TIM PLAY: valores correspondem a 30% da assinatura.</li>
+          </ul></details>
+        </section>
+
+        <section class="commission-card">
+          <div class="commission-card-heading"><div><span class="section-kicker">02 · Produtos</span><h3>Faturamento e faixa</h3></div><span class="commission-tag">Percentual</span></div>
+          <p class="commission-help">O faturamento total define a faixa aplicada à comissão de aparelhos.</p>
+          <div class="commission-input-grid">
+            <label>Faturamento de aparelhos (R$)<input id="deviceRevenue" type="number" min="0" step="0.01" value="0"></label>
+            <label>Faturamento de obsoletos (R$)<input id="obsoleteRevenue" type="number" min="0" step="0.01" value="0"></label>
+            <label>Faturamento de chips (R$)<input id="chipRevenue" type="number" min="0" step="0.01" value="0"></label>
+            <label>Faturamento de acessórios TIM (R$)<input id="timAccessoryRevenue" type="number" min="0" step="0.01" value="0"></label>
+          </div>
+          <div class="commission-tier-result"><span>Faturamento total para faixa</span><strong id="productRevenueTotal">R$ 0,00</strong><span class="tier-pill" id="productTier">Sem comissão</span><small id="deviceCommissionRate">Comissão de aparelhos: 0%</small></div>
+          <div class="commission-card-heading commission-subheading"><div><span class="section-kicker">03 · Outras vendas</span><h3>Comissões adicionais</h3></div></div>
+          <div class="commission-input-grid">
+            <label>Acessórios gerais (R$)<input id="generalAccessoryRevenue" type="number" min="0" step="0.01" value="0"></label>
+            <label>Seguros elegíveis (R$)<input id="insuranceRevenue" type="number" min="0" step="0.01" value="0"></label>
+          </div>
+          <div class="commission-table-wrap"><table class="commission-table compact">
+            <thead><tr><th>Categoria</th><th>Regra</th><th>Comissão</th></tr></thead>
+            <tbody>
+              <tr><td>Aparelhos celulares</td><td id="deviceRateText">0%</td><td id="deviceCommission">R$ 0,00</td></tr>
+              <tr><td>Acessórios gerais</td><td>6%</td><td id="generalAccessoryCommission">R$ 0,00</td></tr>
+              <tr><td>Seguros elegíveis</td><td>6%</td><td id="insuranceCommission">R$ 0,00</td></tr>
+              <tr><td>Acessórios TIM</td><td>0,5%</td><td id="timAccessoryCommission">R$ 0,00</td></tr>
+            </tbody>
+          </table></div>
+          <p class="commission-note">Chip soma para atingir a faixa, mas não gera comissão. Acessórios TIM geram 0,5% a partir de R$ 15.000,00. Seguro: considerar apenas seguros elegíveis, conforme regra da planilha.</p>
+        </section>
+
+        <section class="commission-card">
+          <div class="commission-card-heading"><div><span class="section-kicker">04 · Películas</span><h3>Comissão por faixa de preço</h3></div><span class="commission-tag">Por unidade</span></div>
+          <div class="commission-table-wrap"><table class="commission-table">
+            <thead><tr><th>Faixa de preço</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead>
+            <tbody id="filmCommissionRows"></tbody>
+          </table></div>
+          <div class="commission-subtotal"><span>Total de películas</span><strong id="filmCommissionTotal">R$ 0,00</strong></div>
+        </section>
+
+        <section class="commission-card">
+          <div class="commission-card-heading"><div><span class="section-kicker">05 · Obsoletos</span><h3>Comissão fixa por unidade</h3></div><span class="commission-tag">Por unidade</span></div>
+          <div class="commission-table-wrap"><table class="commission-table">
+            <thead><tr><th>Faixa</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead>
+            <tbody id="obsoleteCommissionRows"></tbody>
+          </table></div>
+          <div class="commission-subtotal"><span>Total de obsoletos</span><strong id="obsoleteCommissionTotal">R$ 0,00</strong></div>
+        </section>
+      </div>
+      <section class="commission-final">
+        <div><span class="section-kicker">Resumo do mês</span><h3>Estimativa de comissionamento</h3><p>Valores calculados conforme as regras e percentuais informados na planilha.</p></div>
+        <div class="commission-final-breakdown"><div><span>Serviços + receita</span><strong id="finalServices">R$ 0,00</strong></div><div><span>Produtos</span><strong id="finalProducts">R$ 0,00</strong></div><div class="grand"><span>Total estimado</span><strong id="finalGrandTotal">R$ 0,00</strong></div></div>
+        <button type="button" class="commission-reset" id="commissionReset">Limpar simulação</button>
+      </section>
+      <p class="commission-disclaimer">Simulação estimada para planejamento. A apuração final depende da validação dos contratos, instalações, elegibilidade das vendas e regras vigentes da empresa.</p>
+    </section>
+
   </main>
 
   <!-- ════════════════════════════════════════════════════
@@ -421,6 +518,6 @@
   </footer>
 
   <script src="historico.js?v=abcb01b5c916"></script>
-  <script src="script.js?v=d95e8f58f851"></script>
+  <script src="script.js?v=d95e8f58f851"></script>\n  <script src="comissionamento.js?v=1"></script>
 </body>
 </html>

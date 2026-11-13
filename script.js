@@ -1512,7 +1512,7 @@ function initCompare() {
 /* ══════════════════════════════════════════════════════════
    PARTE C — TROCA DE MODO
    ══════════════════════════════════════════════════════════ */
-const MODES = ['search', 'catalog', 'compare'];
+const MODES = ['search', 'catalog', 'compare', 'commission'];
 
 function switchMode(mode) {
   currentMode = MODES.includes(mode) ? mode : 'search';
@@ -1521,6 +1521,7 @@ function switchMode(mode) {
     search:  [elModeSearchTab,  elModeSearch],
     catalog: [elModeCatalogTab, elModeCatalog],
     compare: [elModeCompareTab, elModeCompare],
+    commission: [document.getElementById('modeCommissionTab'), document.getElementById('modeCommission')],
   };
   Object.entries(views).forEach(([key, [tab, panel]]) => {
     const active = key === currentMode;
@@ -1541,7 +1542,7 @@ function switchMode(mode) {
    ══════════════════════════════════════════════════════════ */
 
 // ── Troca de modo ──
-const MODE_TABS = { search: elModeSearchTab, catalog: elModeCatalogTab, compare: elModeCompareTab };
+const MODE_TABS = { search: elModeSearchTab, catalog: elModeCatalogTab, compare: elModeCompareTab, commission: document.getElementById('modeCommissionTab') };
 Object.entries(MODE_TABS).forEach(([mode, tab]) => {
   tab.addEventListener('click', () => switchMode(mode));
   tab.addEventListener('keydown', event => {
